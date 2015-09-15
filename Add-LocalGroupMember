@@ -1,0 +1,127 @@
+function Add-LocalGroupMember {
+
+<#
+	.SYNOPSIS
+        Adds AD user to Local Computer Group
+    
+    .PARAMETER  ComputerName
+        Name of Local Computer(s) where group resides
+
+    .PARAMETER  Groups
+        Name of Local Group where user will be added
+    
+    .PARAMETER  Members
+        Name of User(s) to be added to specified group
+
+    .PARAMETER  Credential
+        Credential in which command will be run
+
+       
+    .EXAMPLE
+        Add-LocalGroupMember -ComputerName Server1 -Group "Backup Operators" -Members jsmith
+
+        This commmand adds User 'jsmith' to the Local Backup Operators group on Server1
+    
+    .EXAMPLE
+        Add-LocalGroupMember -ComputerName Server1 -Group "Backup Operators","Administrators' -Members mydomain\jsmith
+
+        This commmand adds mydomain\jsmith to the Local Backup Operators and Administrators group on Server1
+
+    .EXAMPLE
+        Add-LocalGroupMember -ComputerName Server1 -Group "Backup Operators" -Members 'jsmith','mydomain\bjohn','twalter@domain.com' -Credential $myCred
+
+        This commmand adds 'jsmith','mydomain\bjohn', and 'twalter@domain.com' to the Local Backup Operators group on Server1 using provided credentials
+        
+
+        NOTE: Multiple Connections to a server using more than one user account is not allowed. Will not work if the current system has a connection to the server using different credentials than the ones specified
+
+
+    .INPUTS
+    
+
+    .NOTES
+        Function: Add-LocalGroupMember.ps1
+        Author: Chris Wolfenden
+        Last Edit: August 15, 2015
+
+#>
+
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param (
+        [parameter(Mandatory=$false)]
+        [string[]]$ComputerName = "localhost",
+
+        [parameter(Mandatory=$true)]
+        [string[]]$Groups,
+     
+        [parameter(Mandatory=$true)]
+        [string[]] $Members,
+        
+        [System.Management.Automation.CredentialAttribute()]
+        $Credential = [System.Management.Automation.PSCredential]::Empty
+        
+    )
+    begin {}
+    process {
+
+        foreach($computer in $ComputerName){
+            foreach($group in $Groups) {
+                foreach($member in $Members) {
+
+                    #Write-Progress "Adding $domain\$Username to the local $Group group on $computer"
+
+                    # Bind Local Server Group
+                    if($Credential -ne [System.Management.Automation.PSCredential]::Empty){
+                        $currentGroup = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "WinNT://$computer/$group,group",$($Credential.UserName),$($Credential.GetNetworkCredential().password) -ErrorAction Stop
+                    }
+                    else{
+                        $currentGroup = [ADSI]"WinNT://$computer/$group,group";
+                    }
+        
+                
+                    # Determine Username and Domain
+                    if($member -like "*@*"){
+                        $split = $member.Split("@")
+                    
+                        $username = $split[0]
+                        $domain = $split[1]
+                    }
+                    elseif($member -like "*\*"){
+                        $split = $member.Split("\")
+                    
+                        $username = $split[1]
+                        $domain = $split[0]
+                    }
+                    else{
+                        $username = $member
+                        $domain = $env:COMPUTERNAME
+                    }
+                
+                
+                    # Bind to user
+                    $user = [ADSI]"WinNT://$domain/$username,user";
+
+
+
+                    # Add AD security group to Local Server Group
+                    try{
+                        $currentGroup.Add($user.Path);
+                    }
+                    catch{
+                        $errorMessage = $_.Exception
+                        if (([string]$errorMessage).Contains("Multiple connections to a server")){
+                            Write-Warning "Multiple Connections to a server using more than one user account is not allowed"
+                            Write-Warning "Please try again without Credential parameter"
+                            Throw "Failed to add user to group"
+                        }
+                        else {Write-Error -Exception $errorMessage}
+                    }
+                } # foreach - Members
+            } # foreach - Groups
+        } # foreach - Computers
+    } # Process
+
+    End {
+    }
+
+}
